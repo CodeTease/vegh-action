@@ -1,0 +1,115 @@
+name: 'Vegh Action'
+description: 'The official GitHub Action for Vegh. Powered by PyVegh engine, providing exclusive Hooks and LOC Analytics features.'
+author: 'CodeTease'
+branding:
+  icon: 'aperture'
+  color: 'blue'
+
+inputs:
+  command:
+    description: 'Command to run (snap, restore, loc, send)'
+    required: true
+    default: 'snap'
+  path:
+    description: 'Source directory or file path'
+    required: true
+    default: '.'
+  output:
+    description: 'Output filename (for snap)'
+    required: false
+    default: 'artifact.vegh'
+  token:
+    description: 'Auth token (for send)'
+    required: false
+  url:
+    description: 'Target URL (for send)'
+    required: false
+  comment:
+    description: 'Comment/Message for the snapshot metadata'
+    required: false
+    default: 'Snapshot via GitHub Actions'
+  dry-run:
+    description: 'Simulate without creating files (for snap)'
+    required: false
+    default: 'false'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+
+outputs:
+  loc-report:
+    description: "The raw LOC report (useful for PR comments)"
+    value: ${{ steps.run-vegh.outputs.loc_report }}
+  snapshot-path:
+    description: "Path to the generated snapshot"
+    value: ${{ steps.run-vegh.outputs.snap_path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    
+    - name: Install PyVegh Engine (For Hooks & Analytics)
+      shell: bash
+      run: |
+        echo "::group::📦 Installing Vegh Engine (PyVegh)..."
+        pip install pyvegh --upgrade
+        echo "::endgroup::"
+
+    - name: Execute Vegh Command
+      id: run-vegh
+      shell: bash
+      env:
+        FORCE_COLOR: "1"
+        INPUT_CMD: ${{ inputs.command }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_OUT: ${{ inputs.output }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_DRY: ${{ inputs.dry-run }}
+      run: |
+        echo "::group::🚀 Running Vegh Action: $INPUT_CMD"
+        
+        # 1. ANALYTICS (LOC)
+        if [ "$INPUT_CMD" == "loc" ]; then
+          echo "📊 Analyzing Lines of Code..."
+          vegh loc "$INPUT_PATH"
+          
+          # Capture for Output
+          REPORT=$(vegh loc "$INPUT_PATH" --raw)
+          
+          # GitHub Actions Multiline Output Magic
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "loc_report<<$EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+        # 2. SNAPSHOT (Create)
+        elif [ "$INPUT_CMD" == "snap" ]; then
+          ARGS=""
+          if [ "$INPUT_DRY" == "true" ]; then ARGS="--dry-run"; fi
+          
+          vegh snap "$INPUT_PATH" --output "$INPUT_OUT" --comment "$INPUT_COMMENT" $ARGS
+          echo "snap_path=$INPUT_OUT" >> $GITHUB_OUTPUT
+
+        # 3. SEND (Upload)
+        elif [ "$INPUT_CMD" == "send" ]; then
+          echo "🚀 Sending artifact..."
+          # Note: PATH here refers to the .vegh file to send
+          vegh send "$INPUT_PATH" --url "$INPUT_URL" --auth "$INPUT_TOKEN" --force-chunk
+
+        # 4. RESTORE
+        elif [ "$INPUT_CMD" == "restore" ]; then
+          vegh restore "$INPUT_PATH" "$INPUT_OUT"
+
+        else
+          echo "::error::Unknown command: $INPUT_CMD"
+          exit 1
+        fi
+        
+        echo "::endgroup::"
