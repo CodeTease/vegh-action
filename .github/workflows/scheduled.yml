@@ -1,0 +1,72 @@
+name: 🥬 Vegh Daily Checkup
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+
+jobs:
+  self-test:
+    name: Test Vegh Action Integrity
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: 🍳 Prepare Test Data
+        run: |
+          mkdir -p playground/src
+          echo "print('Hello CodeTease')" > playground/src/main.py
+          echo "console.log('Vegh is cool');" > playground/src/app.js
+          echo "Just a text file" > playground/readme.txt
+          
+          # Tính tổng checksum ban đầu để lát so sánh
+          find playground -type f -exec md5sum {} + | sort > original.sum
+
+      - name: 📊 Test LOC Command
+        id: vegh-loc
+        uses: ./ 
+        with:
+          command: 'loc'
+          path: './playground'
+
+      - name: Check LOC Report
+        run: |
+          echo "::notice::LOC Report content below:"
+          echo "${{ steps.vegh-loc.outputs.loc-report }}"
+
+      - name: 📦 Test Snap Command
+        uses: ./
+        with:
+          command: 'snap'
+          path: './playground'
+          output: 'test-artifact.vegh'
+          comment: 'Automated Health Check Snapshot'
+
+      - name: ♻️ Test Restore Command
+        uses: ./
+        with:
+          command: 'restore'
+          path: 'test-artifact.vegh'
+          output: './restored-playground'
+
+      - name: 🕵️ Validate Data Integrity
+        run: |
+          echo "Checking if what went in is what came out..."
+          
+          find restored-playground -type f -exec md5sum {} + | sort > restored.sum
+          
+          sed -i 's/playground\///g' original.sum
+          sed -i 's/restored-playground\///g' restored.sum
+          
+          if diff original.sum restored.sum; then
+            echo "✅ SUCCESS: Data integrity verified! Vegh is healthy."
+          else
+            echo "❌ FAILURE: Data mismatch detected!"
+            echo "Original:"
+            cat original.sum
+            echo "Restored:"
+            cat restored.sum
+            exit 1
+          fi
