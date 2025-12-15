@@ -1,0 +1,67 @@
+name: ☁️ Vegh Production Smoke Test (@v1)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  smoke-test-release:
+    name: Verify Release Version (@v1)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: 🍳 Cook some data
+        run: |
+          mkdir -p production_data/src
+          echo "def main(): pass" > production_data/src/main.py
+          echo "console.log('Production is hard');" > production_data/src/index.js
+          echo "This is a serious file." > production_data/README.md
+          
+          find production_data -type f -exec md5sum {} + | sort > original_prod.sum
+
+      - name: 📊 Test LOC (Production)
+        id: vegh-loc
+        uses: codetease/vegh-action@v1
+        with:
+          command: 'loc'
+          path: './production_data'
+
+      - name: Inspect Report
+        run: |
+          echo "::notice::Production Report:"
+          echo "${{ steps.vegh-loc.outputs.loc-report }}"
+
+      - name: 📦 Test Snap (Production)
+        uses: codetease/vegh-action@v1
+        with:
+          command: 'snap'
+          path: './production_data'
+          output: 'release-test.vegh'
+          comment: 'Smoke Test via @v1 Tag'
+
+      - name: ♻️ Test Restore (Production)
+        uses: codetease/vegh-action@v1
+        with:
+          command: 'restore'
+          path: 'release-test.vegh'
+          output: './restored_prod'
+
+      - name: 🕵️ Validate Production Integrity
+        run: |
+          echo "Verifying if @v1 is strictly business..."
+          
+          find restored_prod -type f -exec md5sum {} + | sort > restored_prod.sum
+          
+          sed -i 's/production_data\///g' original_prod.sum
+          sed -i 's/restored_prod\///g' restored_prod.sum
+          
+          if diff original_prod.sum restored_prod.sum; then
+            echo "✅ SMOKE TEST PASSED: The @v1 tag is safe to consume."
+          else
+            echo "🔥 SMOKE TEST FAILED: The @v1 tag is broken!"
+            exit 1
+          fi
