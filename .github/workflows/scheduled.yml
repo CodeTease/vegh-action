@@ -24,6 +24,12 @@ jobs:
           # Tính tổng checksum ban đầu để lát so sánh
           find playground -type f -exec md5sum {} + | sort > original.sum
 
+      - name: 🛡️ Test Security Audit
+        uses: ./
+        with:
+          command: 'audit'
+          path: './playground'
+
       - name: 📊 Test LOC Command
         id: vegh-loc
         uses: ./ 
@@ -31,10 +37,35 @@ jobs:
           command: 'loc'
           path: './playground'
 
+      - name: 📉 Test SLOC Command
+        id: vegh-sloc
+        uses: ./
+        with:
+          command: 'loc'
+          path: './playground'
+          sloc: 'true'
+
       - name: Check LOC Report
         run: |
           echo "::notice::LOC Report content below:"
           echo "${{ steps.vegh-loc.outputs.loc-report }}"
+
+      - name: 🤖 Test Prompt (AI Context)
+        id: vegh-prompt
+        uses: ./
+        with:
+          command: 'prompt'
+          path: './playground'
+          clean: 'true'
+
+      - name: Verify Context Output
+        run: |
+           if [ -f "${{ steps.vegh-prompt.outputs.context-path }}" ]; then
+             echo "✅ Context file exists at ${{ steps.vegh-prompt.outputs.context-path }}"
+           else
+             echo "❌ Context file missing!"
+             exit 1
+           fi
 
       - name: 📦 Test Snap Command
         uses: ./
@@ -43,6 +74,12 @@ jobs:
           path: './playground'
           output: 'test-artifact.vegh'
           comment: 'Automated Health Check Snapshot'
+
+      - name: ✅ Test Integrity Check
+        uses: ./
+        with:
+          command: 'check'
+          path: 'test-artifact.vegh'
 
       - name: ♻️ Test Restore Command
         uses: ./
