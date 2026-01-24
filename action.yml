@@ -7,7 +7,7 @@ branding:
 
 inputs:
   command:
-    description: 'Command to run (snap, restore, loc, send)'
+    description: 'Command to run (snap, restore, loc, send, audit, prompt, check)'
     required: true
     default: 'snap'
   path:
@@ -36,6 +36,18 @@ inputs:
     description: 'Python version to use'
     required: false
     default: '3.12'
+  clean:
+    description: 'Clean mode for prompt (remove locks/secrets)'
+    required: false
+    default: 'true'
+  sloc:
+    description: 'Count Source Lines of Code (exclude comments/blanks)'
+    required: false
+    default: 'false'
+  extra_args:
+    description: 'Extra arguments to pass to the vegh command'
+    required: false
+    default: ''
 
 outputs:
   loc-report:
@@ -44,6 +56,9 @@ outputs:
   snapshot-path:
     description: "Path to the generated snapshot"
     value: ${{ steps.run-vegh.outputs.snap_path }}
+  context-path:
+    description: "Path to the generated AI context XML file"
+    value: ${{ steps.run-vegh.outputs.context_path }}
 
 runs:
   using: "composite"
@@ -72,16 +87,22 @@ runs:
         INPUT_URL: ${{ inputs.url }}
         INPUT_COMMENT: ${{ inputs.comment }}
         INPUT_DRY: ${{ inputs.dry-run }}
+        INPUT_CLEAN: ${{ inputs.clean }}
+        INPUT_SLOC: ${{ inputs.sloc }}
+        INPUT_EXTRA_ARGS: ${{ inputs.extra_args }}
       run: |
         echo "::group::🚀 Running Vegh Action: $INPUT_CMD"
         
         # 1. ANALYTICS (LOC)
         if [ "$INPUT_CMD" == "loc" ]; then
+          ARGS=""
+          if [ "$INPUT_SLOC" == "true" ]; then ARGS="--sloc"; fi
+
           echo "📊 Analyzing Lines of Code..."
-          vegh loc "$INPUT_PATH"
+          vegh loc "$INPUT_PATH" $ARGS $INPUT_EXTRA_ARGS
           
           # Capture for Output
-          REPORT=$(vegh loc "$INPUT_PATH" --raw)
+          REPORT=$(vegh loc "$INPUT_PATH" $ARGS $INPUT_EXTRA_ARGS --raw)
           
           # GitHub Actions Multiline Output Magic
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
@@ -94,18 +115,43 @@ runs:
           ARGS=""
           if [ "$INPUT_DRY" == "true" ]; then ARGS="--dry-run"; fi
           
-          vegh snap "$INPUT_PATH" --output "$INPUT_OUT" --comment "$INPUT_COMMENT" $ARGS
+          vegh snap "$INPUT_PATH" --output "$INPUT_OUT" --comment "$INPUT_COMMENT" $ARGS $INPUT_EXTRA_ARGS
           echo "snap_path=$INPUT_OUT" >> $GITHUB_OUTPUT
 
         # 3. SEND (Upload)
         elif [ "$INPUT_CMD" == "send" ]; then
           echo "🚀 Sending artifact..."
           # Note: PATH here refers to the .vegh file to send
-          vegh send "$INPUT_PATH" --url "$INPUT_URL" --auth "$INPUT_TOKEN" --force-chunk
+          vegh send "$INPUT_PATH" --url "$INPUT_URL" --auth "$INPUT_TOKEN" --force-chunk $INPUT_EXTRA_ARGS
 
         # 4. RESTORE
         elif [ "$INPUT_CMD" == "restore" ]; then
-          vegh restore "$INPUT_PATH" "$INPUT_OUT"
+          vegh restore "$INPUT_PATH" "$INPUT_OUT" $INPUT_EXTRA_ARGS
+
+        # 5. AUDIT
+        elif [ "$INPUT_CMD" == "audit" ]; then
+          echo "::group::🕵️ Running Security Audit..."
+          vegh audit "$INPUT_PATH" $INPUT_EXTRA_ARGS
+          echo "::endgroup::"
+
+        # 6. PROMPT (AI Context)
+        elif [ "$INPUT_CMD" == "prompt" ]; then
+          echo "🤖 Generating AI Context..."
+          ARGS=""
+          if [ "$INPUT_CLEAN" == "true" ]; then ARGS="--clean"; fi
+          
+          # Output to a file named context.xml
+          vegh prompt "$INPUT_PATH" $ARGS $INPUT_EXTRA_ARGS --output context.xml
+          
+          echo "context_path=context.xml" >> $GITHUB_OUTPUT
+          
+          # Optional: Print summary to log
+          echo "::notice::Context generated at context.xml"
+
+        # 7. CHECK (Integrity)
+        elif [ "$INPUT_CMD" == "check" ]; then
+           echo "🛡️ Verifying Integrity (Blake3)..."
+           vegh check "$INPUT_PATH" $INPUT_EXTRA_ARGS
 
         else
           echo "::error::Unknown command: $INPUT_CMD"
