@@ -1,5 +1,5 @@
 name: 'Vegh Action'
-description: 'The official GitHub Action for Vegh. Powered by PyVegh engine, providing exclusive Hooks and LOC Analytics features.'
+description: 'The official GitHub Action for Vegh. Powered by PyVegh engine.'
 author: 'CodeTease'
 branding:
   icon: 'aperture'
